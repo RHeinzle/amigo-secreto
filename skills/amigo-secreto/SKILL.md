@@ -10,7 +10,7 @@ Resultado: uma única página (Artifact) em que cada pessoa abre o próprio link
 ## Antes de sortear
 
 - É preciso poder rodar código (Node). Se não for possível, avise e pare. Nunca sorteie "de cabeça".
-- Com menos de 2 nomes ou nomes repetidos, avise o usuário antes de sortear. O script também recusa esses casos.
+- Com menos de 4 nomes ou nomes repetidos, avise o usuário e não sorteie. O script também recusa esses casos.
 - Restrições informadas pelo usuário (quem não pode tirar quem) entram como `--nao-tira="Nome>Nome"`, uma por restrição.
 
 ## Passo a passo
@@ -478,7 +478,7 @@ const novoCodigo = () => Array.from({ length: TAM_CODIGO }, () => ALF[randomInt(
 const b64 = (u8) => Buffer.from(u8).toString('base64');
 const falhar = (msg) => { console.error('ERRO: ' + msg); process.exit(1); };
 
-if (nomes.length < 2) falhar('são necessários pelo menos 2 nomes');
+if (nomes.length < 4) falhar('são necessários pelo menos 4 nomes');
 if (new Set(nomes).size !== nomes.length) falhar('há nomes repetidos');
 // Cada nome ganha um final de link único. Se dois nomes diferem só por acento ou maiúscula (João e Joao), o segundo recebe -2.
 const slugUsado = new Set();
@@ -517,6 +517,8 @@ const amigoDe = sortear();
 
 // ---------- Cifra: AES-GCM, chave derivada do código por PBKDF2-SHA256 ----------
 const sal = webcrypto.getRandomValues(new Uint8Array(16));
+const enc = new TextEncoder();
+const TAM_TEXTO = Math.max(...nomes.flatMap((a) => nomes.map((b) => enc.encode(JSON.stringify({ nome: a, amigo: b })).length)));
 async function cifrar(codigo, texto) {
   const base = await webcrypto.subtle.importKey('raw', new TextEncoder().encode(codigo), 'PBKDF2', false, ['deriveKey']);
   const chave = await webcrypto.subtle.deriveKey(
@@ -526,8 +528,10 @@ async function cifrar(codigo, texto) {
     false,
     ['encrypt']
   );
+  const bytes = new Uint8Array(TAM_TEXTO).fill(32);
+  bytes.set(enc.encode(texto));
   const iv = webcrypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv }, chave, new TextEncoder().encode(texto)));
+  const ct = new Uint8Array(await webcrypto.subtle.encrypt({ name: 'AES-GCM', iv }, chave, bytes));
   return { iv: b64(iv), ct: b64(ct) };
 }
 
@@ -555,6 +559,7 @@ const checar = (nome, ok) => { if (!ok) falhas.push(nome); };
 checar('ninguém tira a si mesmo', nomes.every((n) => amigoDe[n] !== n));
 checar('todos são tirados uma vez', new Set(Object.values(amigoDe)).size === nomes.length);
 checar('restrições respeitadas', proibidos.every(([x, y]) => amigoDe[x] !== y));
+checar('cifras do mesmo tamanho', new Set(Object.values(dados.pessoas).map((p) => p.ct.length)).size === 1);
 
 const script = html.match(/<script>([\s\S]*)<\/script>/)[1];
 new vm.Script(script); // erro de sintaxe lança aqui
